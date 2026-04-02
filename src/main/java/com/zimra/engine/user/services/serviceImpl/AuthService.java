@@ -51,6 +51,9 @@ public class AuthService {
             throw new RuntimeException("User not found or inactive");
         }
 
+        UserSystem userSystem = systemRepository.findById(systemId).orElseThrow(() -> new RuntimeException("System not found"));
+        UserSystem system = systemRepository.findById(systemId)
+                .orElseThrow(() -> new RuntimeException("System not found"));
         Set<Role> rolesForSystem = user.getRoles().stream()
                 .filter(role -> role.getUserSystem().getId().equals(systemId))
                 .collect(Collectors.toSet());
@@ -59,8 +62,8 @@ public class AuthService {
             throw new RuntimeException("User has no access to this system");
         }
 
-        UserSystem system = systemRepository.findById(systemId)
-                .orElseThrow(() -> new RuntimeException("System not found"));
+//        UserSystem system = systemRepository.findById(systemId)
+//                .orElseThrow(() -> new RuntimeException("System not found"));
 
         Set<String> roleNames = rolesForSystem.stream()
                 .map(Role::getName)
