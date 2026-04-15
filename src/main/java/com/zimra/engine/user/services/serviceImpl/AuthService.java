@@ -25,11 +25,6 @@ public class AuthService {
     @Autowired
     private UserRepository userRepository;
     @Autowired
-    private RoleRepository roleRepository;
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired
     private SystemRepository systemRepository;
     @Autowired
     private JwtUtil jwtTokenUtil;
@@ -37,7 +32,6 @@ public class AuthService {
 
     public String authenticate(String username, String password, Long systemId) {
 
-        // Step 1: External API validation
         boolean isValid = verifyADPassword(username, password);
 
         if (!isValid) {
@@ -62,8 +56,39 @@ public class AuthService {
             throw new RuntimeException("User has no access to this system");
         }
 
-//        UserSystem system = systemRepository.findById(systemId)
-//                .orElseThrow(() -> new RuntimeException("System not found"));
+        Set<String> roleNames = rolesForSystem.stream()
+                .map(Role::getName)
+                .collect(Collectors.toSet());
+
+        return jwtTokenUtil.generateToken(user.getUsername(), roleNames, system);
+    }
+
+    public String authenticate(String username, String password) {
+
+        // Step 1: External API validation
+        boolean isValid = verifyADPassword(username, password);
+
+        if (!isValid) {
+            throw new RuntimeException("Invalid credentials");
+        }
+
+        // Step 2: Internal checks
+        User user = userRepository.findByUsername(username);
+
+        if (user == null || !user.isActive()) {
+            throw new RuntimeException("User not found or inactive");
+        }
+
+        UserSystem userSystem = systemRepository.findUserSystemByName("UserConnect").orElseThrow(() -> new RuntimeException("System not found"));
+        UserSystem system = systemRepository.findById(userSystem.getId())
+                .orElseThrow(() -> new RuntimeException("System not found"));
+        Set<Role> rolesForSystem = user.getRoles().stream()
+                .filter(role -> role.getUserSystem().getId().equals(userSystem.getId()))
+                .collect(Collectors.toSet());
+
+        if (rolesForSystem.isEmpty()) {
+            throw new RuntimeException("User has no access to this system");
+        }
 
         Set<String> roleNames = rolesForSystem.stream()
                 .map(Role::getName)
