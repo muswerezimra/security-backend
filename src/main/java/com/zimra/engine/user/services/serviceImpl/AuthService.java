@@ -4,11 +4,10 @@ import com.zimra.engine.user.configs.security.JwtUtil;
 import com.zimra.engine.user.models.Role;
 import com.zimra.engine.user.models.User;
 import com.zimra.engine.user.models.UserSystem;
-import com.zimra.engine.user.repositories.RoleRepository;
 import com.zimra.engine.user.repositories.SystemRepository;
 import com.zimra.engine.user.repositories.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -20,93 +19,72 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
+@Slf4j
 public class AuthService {
 
-    @Autowired
-    private UserRepository userRepository;
-    @Autowired
-    private SystemRepository systemRepository;
-    @Autowired
-    private JwtUtil jwtTokenUtil;
+    private final UserRepository userRepository;
+    private final SystemRepository systemRepository;
+    private final JwtUtil jwtTokenUtil;
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(5))
+            .build();
 
-
+    /**
+     * Authenticates a user against a specific system ID.
+     */
     public String authenticate(String username, String password, Long systemId) {
-
-        boolean isValid = verifyADPassword(username, password);
-
-        if (!isValid) {
-            throw new RuntimeException("Invalid credentials");
-        }
-
-        // Step 2: Internal checks
-        User user = userRepository.findByUsername(username);
-
-        if (user == null || !user.isActive()) {
-            throw new RuntimeException("User not found or inactive");
-        }
-
-        UserSystem userSystem = systemRepository.findById(systemId).orElseThrow(() -> new RuntimeException("System not found"));
         UserSystem system = systemRepository.findById(systemId)
-                .orElseThrow(() -> new RuntimeException("System not found"));
-        Set<Role> rolesForSystem = user.getRoles().stream()
-                .filter(role -> role.getUserSystem().getId().equals(systemId))
-                .collect(Collectors.toSet());
-
-        if (rolesForSystem.isEmpty()) {
-            throw new RuntimeException("User has no access to this system");
-        }
-
-        Set<String> roleNames = rolesForSystem.stream()
-                .map(Role::getName)
-                .collect(Collectors.toSet());
-
-        return jwtTokenUtil.generateToken(user.getUsername(), roleNames, system);
+                .orElseThrow(() -> new RuntimeException("System with ID " + systemId + " not found"));
+        
+        return processAuthentication(username, password, system);
     }
 
+    /**
+     * Authenticates a user against the default 'UserConnect' system.
+     */
     public String authenticate(String username, String password) {
+        UserSystem system = systemRepository.findUserSystemByName("UserConnect")
+                .orElseThrow(() -> new RuntimeException("Default system 'UserConnect' not found"));
+        
+        return processAuthentication(username, password, system);
+    }
 
-        // Step 1: External API validation
-        boolean isValid = verifyADPassword(username, password);
-
-        if (!isValid) {
+    /**
+     * Core authentication logic shared across entry points.
+     */
+    private String processAuthentication(String username, String password, UserSystem system) {
+        // 1. External Active Directory Validation
+        if (!verifyADPassword(username, password)) {
             throw new RuntimeException("Invalid credentials");
         }
 
-        // Step 2: Internal checks
+        // 2. Fetch User and check status
         User user = userRepository.findByUsername(username);
-
         if (user == null || !user.isActive()) {
-            throw new RuntimeException("User not found or inactive");
+            throw new RuntimeException("User account not found or inactive in the internal system");
         }
 
-        UserSystem userSystem = systemRepository.findUserSystemByName("UserConnect").orElseThrow(() -> new RuntimeException("System not found"));
-        UserSystem system = systemRepository.findById(userSystem.getId())
-                .orElseThrow(() -> new RuntimeException("System not found"));
-        Set<Role> rolesForSystem = user.getRoles().stream()
-                .filter(role -> role.getUserSystem().getId().equals(userSystem.getId()))
-                .collect(Collectors.toSet());
-
-        if (rolesForSystem.isEmpty()) {
-            throw new RuntimeException("User has no access to this system");
-        }
-
-        Set<String> roleNames = rolesForSystem.stream()
+        // 3. Filter roles for the target system
+        Set<String> rolesForSystem = user.getRoles().stream()
+                .filter(role -> role.getUserSystem().getId().equals(system.getId()))
                 .map(Role::getName)
                 .collect(Collectors.toSet());
 
-        return jwtTokenUtil.generateToken(user.getUsername(), roleNames, system);
+        if (rolesForSystem.isEmpty()) {
+            throw new RuntimeException("Access Denied: User '" + username + "' has no roles assigned for system '" + system.getName() + "'");
+        }
+
+        // 4. Generate Token
+        return jwtTokenUtil.generateToken(user.getUsername(), rolesForSystem, system);
     }
 
-    public boolean verifyADPassword(String username, String password) {
+    /**
+     * Verifies credentials against the external Active Directory API.
+     */
+    private boolean verifyADPassword(String username, String password) {
         try {
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(5))
-                    .build();
-
-            String requestBody = String.format(
-                    "{\"Username\":\"%s\",\"Password\":\"%s\"}",
-                    username, password
-            );
+            String requestBody = String.format("{\"Username\":\"%s\",\"Password\":\"%s\"}", username, password);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("http://10.16.83.32:8087/api/auth"))
@@ -115,17 +93,13 @@ public class AuthService {
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .build();
 
-            HttpResponse<String> response = client.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString()
-            );
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-            // Assuming response body is: true or false
             return Boolean.parseBoolean(response.body());
 
         } catch (Exception e) {
-            throw new RuntimeException("External authentication service failed", e);
+            log.error("Active Directory authentication failed for user {}: {}", username, e.getMessage());
+            throw new RuntimeException("External authentication service is currently unavailable");
         }
     }
-
 }
