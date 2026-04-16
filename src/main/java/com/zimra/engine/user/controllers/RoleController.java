@@ -21,7 +21,7 @@ public class RoleController {
         return ResponseEntity.status(HttpStatus.CREATED).body(roleService.createRole(roleName, systemId));
     }
 
-    @GetMapping("get-by-system/{roleId}")
+    @GetMapping("get-by-system/{systemId}")
     public ResponseEntity<List<RoleDTO>> getAllRoles(@PathVariable Long roleId) {
         return ResponseEntity.status(HttpStatus.OK).body(roleService.getRolesSystemId(roleId));
     }
