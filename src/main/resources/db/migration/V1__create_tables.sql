@@ -1,5 +1,6 @@
--- 1. Create Departments Table
-CREATE TABLE departments (
+-- Consolidated V1 Migration Script
+-- 1. Create Department Table
+CREATE TABLE IF NOT EXISTS department (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR(255),
     description VARCHAR(255),
@@ -10,12 +11,12 @@ CREATE TABLE departments (
     modified_by VARCHAR(255)
 );
 
--- 2. Create UserSystems Table (The external systems)
-CREATE TABLE user_systems (
+-- 2. Create User System Table
+CREATE TABLE IF NOT EXISTS user_system (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR(255) UNIQUE,
     description VARCHAR(255),
-    status VARCHAR(50), -- e.g., ACTIVE, INACTIVE
+    status VARCHAR(50),
     created_by VARCHAR(255),
     created_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     date_modified TIMESTAMP WITHOUT TIME ZONE,
@@ -23,7 +24,7 @@ CREATE TABLE user_systems (
 );
 
 -- 3. Create Roles Table
-CREATE TABLE roles (
+CREATE TABLE IF NOT EXISTS roles (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR(255),
     system_id BIGINT NOT NULL,
@@ -31,11 +32,11 @@ CREATE TABLE roles (
     created_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     date_modified TIMESTAMP WITHOUT TIME ZONE,
     modified_by VARCHAR(255),
-    CONSTRAINT fk_role_system FOREIGN KEY (system_id) REFERENCES user_systems(id)
+    CONSTRAINT fk_role_system FOREIGN KEY (system_id) REFERENCES user_system(id)
 );
 
 -- 4. Create Users Table
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,
     first_name VARCHAR(255),
     last_name VARCHAR(255),
@@ -51,11 +52,11 @@ CREATE TABLE users (
     created_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     date_modified TIMESTAMP WITHOUT TIME ZONE,
     modified_by VARCHAR(255),
-    CONSTRAINT fk_user_department FOREIGN KEY (department_id) REFERENCES departments(id)
+    CONSTRAINT fk_user_department FOREIGN KEY (department_id) REFERENCES department(id)
 );
 
--- 5. Create User-Roles Join Table (The core relationship)
-CREATE TABLE user_roles (
+-- 5. Create User-Roles Join Table
+CREATE TABLE IF NOT EXISTS user_roles (
     user_id BIGINT NOT NULL,
     role_id BIGINT NOT NULL,
     PRIMARY KEY (user_id, role_id),
@@ -63,8 +64,8 @@ CREATE TABLE user_roles (
     CONSTRAINT fk_user_roles_role FOREIGN KEY (role_id) REFERENCES roles(id)
 );
 
--- 6. Create Allowed Origins Table (CORS)
-CREATE TABLE allowed_origins (
+-- 6. Create Allowed Origins Table
+CREATE TABLE IF NOT EXISTS allowed_origins (
     id BIGSERIAL PRIMARY KEY,
     origin_url VARCHAR(255),
     created_by VARCHAR(255),
@@ -73,6 +74,13 @@ CREATE TABLE allowed_origins (
     modified_by VARCHAR(255)
 );
 
--- Indexing for performance
-CREATE INDEX idx_users_username ON users(username);
-CREATE INDEX idx_roles_system_id ON roles(system_id);
+-- Indexing
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_users_username') THEN
+        CREATE INDEX idx_users_username ON users(username);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_roles_system_id') THEN
+        CREATE INDEX idx_roles_system_id ON roles(system_id);
+    END IF;
+END $$;
